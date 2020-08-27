@@ -5,9 +5,9 @@
 
 //#include <cairo.h>
 
-typedef std::valarray<float> Point;
+typedef std::valarray<double> Point;
 
-float dot(Point x, Point y)
+double dot(Point x, Point y)
 {
 	return (x*y).sum();
 }
@@ -17,7 +17,7 @@ Point cross(Point x, Point y)
 	return Point{ x[1]*y[2]-y[1]*x[2], x[2]*y[0]-y[2]*x[0], x[0]*y[1]-y[0]*x[1] };
 }
 
-float norm(Point x)
+double norm(Point x)
 {
 	return sqrt(dot(x, x));
 }
@@ -114,10 +114,10 @@ class Sphere : public Shape
 {
 private:
 	Point center;
-	float radius;
+	double radius;
 
 public:
-	Sphere(Point center, float radius): center{ center }, radius{ radius }
+	Sphere(Point center, double radius): center{ center }, radius{ radius }
 	{}
 
 	Contour contour(Point point_of_view)
@@ -128,10 +128,10 @@ public:
 	}
 };
 
-std::list< Point > project(std::list< Point > points, float field_of_view=M_PI/2)
+std::list< Point > project(std::list< Point > points, double field_of_view=M_PI/2)
 {
 	std::list< Point > ret;
-	float scale=1/tan(0.5*field_of_view);
+	double scale=1/tan(0.5*field_of_view);
 	for(auto point: points)
 		ret.push_back({ -scale*point[0]/point[2], -scale*point[1]/point[2], -point[2] });
 	return ret;
