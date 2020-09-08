@@ -1,146 +1,150 @@
+#include <armadillo>
 #include <list>
-#include <valarray>
-#include <array>
 #include <cmath>
 
-//#include <cairo.h>
-
-typedef std::valarray<double> Point;
-
-double dot(Point x, Point y)
-{
-	return (x*y).sum();
-}
-
-Point cross(Point x, Point y)
-{
-	return Point{ x[1]*y[2]-y[1]*x[2], x[2]*y[0]-y[2]*x[0], x[0]*y[1]-y[0]*x[1] };
-}
-
-double norm(Point x)
-{
-	return sqrt(dot(x, x));
-}
-
-
-struct ReferenceFrame
-{
-	std::array<Point, 3> axes;
-	Point origin;
-};
-
-class Path
+class FrameTransform
 {
 private:
-	std::list< Point > nodes;
+    arma::Col<double> traslation;
+    arma::Mat<double> rotscale;
+
+    arma::Mat<double> rotation_matrix(arma::Col<double> versor, double angle);
 
 public:
-	Path()
-	{}
 
-	Path(std::list< Point > nodes): nodes{ nodes }
-	{}
+    FrameTransform(arma::Col<double> origin={0, 0, 0},
+                   std::array<arma::Col<double>, 3> axes={ arma::Col<double>{1, 0, 0},
+                                                           arma::Col<double>{0, 1, 0},
+                                                           arma::Col<double>{0, 0, 1} }):
+        traslation{ -origin }, rotscale{ arma::inv(arma::join_rows( axes[0], axes[1], axes[2] ) ) }
+    {}
 
-	void add_node(Point node, bool back=true)
-	{
-		if(back) nodes.push_back(node);
-		else     nodes.push_front(node);
-	}
+    FrameTransform &rotate(const arma::Col<double> &);
 
-	void erase_node(bool back=true)
-	{
-		if(back) nodes.pop_back();
-		else     nodes.pop_front();
-	}
+    FrameTransform &traslate(const arma::Col<double> &);
 
-	std::list< Point > as_list()
-	{
-		return nodes;
-	}
+    friend FrameTransform operator*(const FrameTransform &, const FrameTransform &);
+
+    friend arma::Col<double> operator*(const FrameTransform &, const arma::Col<double> &);
+
 };
 
-class Contour
-{
-public:
-
-	virtual Path get_path();
-
-	friend class Path;
-};
-
-class Ellipse : public Contour
+class Camera
 {
 private:
-	Point center, first_vertex, second_vertex;
-	int path_nodes;
+    FrameTransform frame;
+    double focal_distance;
 
 public:
-	Ellipse(const Point center, const std::array< Point, 2 > vertexes,
-		const int path_nodes=32): center{ center }, first_vertex{ vertexes[0] }, second_vertex{ vertexes[1] }, path_nodes{ path_nodes }
-	{}
+    Camera(const FrameTransform &frame=FrameTransform{}, double focal_distance=0): frame{ frame }, focal_distance{ focal_distance }
+    {}
 
-	Ellipse(const Point center, const Point radius_vector, const int path_nodes=32): center{ center }, path_nodes{ path_nodes }
-	{
-		double radius=norm(radius_vector);
-		if( fabs(radius_vector[1])>0.01*radius || fabs(radius_vector[2])>0.01*radius )
-			first_vertex=Point{ 1, 0, 0 };
-		else
-			first_vertex=Point{ 0, 1, 0 };
+    arma::Col<double> project(arma::Col<double> point);
 
-		first_vertex=radius_vector-dot(radius_vector, first_vertex)*first_vertex;
-		first_vertex=1/norm(first_vertex)*first_vertex;
-		second_vertex=cross(radius_vector, first_vertex);
-		first_vertex=radius*first_vertex;
-	}
-	
-	Path get_path()
-	{
-		std::list< Point > nodes;
-		const double dtheta=2*M_PI/path_nodes;
-		for(int i=0; i<path_nodes; i++) nodes.push_back( center + cos(i*dtheta)*first_vertex + sin(i*dtheta)*second_vertex );
-		nodes.push_back( nodes.front() );
-		return Path{ nodes };
-	}
+    std::list< arma::Col<double> > project(std::list< arma::Col<double> > point);
 };
 
-class Shape
-{
-public:
-	
-	virtual Contour contour(Point point_of_view);
-};
+class Ellipse;
 
-class Sphere : public Shape
+class Circle
 {
 private:
-	Point center;
-	double radius;
+    arma::Col<double> center, radius;
 
 public:
-	Sphere(Point center, double radius): center{ center }, radius{ radius }
-	{}
+    Circle(const arma::Col<double> &center, const arma::Col<double> &radius): center{ center }, radius{ radius }
+    {}
 
-	Contour contour(Point point_of_view)
-	{
-		Point normal_vector = point_of_view-center;
-		normal_vector = 1/norm(normal_vector)*normal_vector;
-		return Ellipse(center, radius*normal_vector);
-	}
+    Circle(const arma::Col<double> &center, const arma::Col<double> &normal, const double radius): center{ center }, radius{ radius*normal/arma::norm(normal) }
+    {}
+
+    std::list< arma::Col<double> > as_path(const int points=180);
+    
+    friend Ellipse;
 };
 
-std::list< Point > project(std::list< Point > points, double field_of_view=M_PI/2)
+class Ellipse
 {
-	std::list< Point > ret;
-	double scale=1/tan(0.5*field_of_view);
-	for(auto point: points)
-		ret.push_back({ -scale*point[0]/point[2], -scale*point[1]/point[2], -point[2] });
-	return ret;
-}
+private:
+    arma::Col<double> center, axis1, axis2;
+
+    Ellipse() {}
+public:
+    Ellipse(const Circle &circle): center{ circle.center }
+    {
+        double radius = arma::norm(circle.radius);
+        arma::Col<double> versor = 1/radius*circle.radius;
+
+        if(fabs(versor[0])>1-0.1) axis1 = arma::Col<double>{0, 1, 0}; // Pick the perpendicularest
+        else                             axis1 = arma::Col<double>{1, 0, 0}; //
+
+        axis1 = radius*(versor-arma::dot(axis1, versor)*versor);
+        axis2 = arma::cross(versor, axis1);
+    }
+
+    std::list< arma::Col<double> > as_path(const int points=180)
+    {
+        double dtheta=2*M_PI/(points-1);
+        std::list< arma::Col<double> > ret;
+        for(int i=0; i<points+1; i++) ret.push_back(arma::Col<double>{ center+axis1*cos(i*dtheta)+axis2*sin(i*dtheta) });
+        return ret;
+    }
+};
 
 int main()
 {
-	Sphere my_sphere({0, 0, -3}, 1);
-	my_sphere.contour({0, 0, 0});
+    return 0;
+}
 
-	return 0;
+arma::Mat<double> FrameTransform::rotation_matrix(arma::Col<double> versor, double theta)
+{
+    double x{versor[0]}, y{versor[1]}, z{versor[2]};
+    return arma::Mat<double>{ { cos(theta)+x*x*(1-cos(theta)), x*y*(1-cos(theta))-z*sin(theta), x*z*(1-cos(theta))+y*sin(theta) },
+                              { x*y*(1-cos(theta))+z*sin(theta), cos(theta)+y*y*(1-cos(theta)), y*z*(1-cos(theta))-x*sin(theta) },
+                              { x*z*(1-cos(theta))-y*sin(theta), y*z*(1-cos(theta))+x*sin(theta), cos(theta)+z*z*(1-cos(theta)) } };
+}
+
+FrameTransform &FrameTransform::traslate(const arma::Col<double> &displacement)
+{
+    traslation = traslation - displacement;
+    return *this;
+}
+
+FrameTransform &FrameTransform::rotate(const arma::Col<double> &rotation)
+{
+    double theta=arma::norm(rotation);
+    rotscale = rotscale*arma::inv(rotation_matrix(1/theta*rotation, theta));
+    return *this;
+}
+
+FrameTransform operator*(const FrameTransform &left, const FrameTransform &right)
+{
+    FrameTransform ret;
+    ret.traslation = right.rotscale*right.traslation+left.rotscale ;
+    ret.rotscale = left.rotscale*right.rotscale;
+    return ret;
+}
+
+arma::Col<double> operator*(const FrameTransform &left, const arma::Col<double> &right)
+{
+    return left.rotscale*(right+left.traslation);
+}
+
+arma::Col<double> Camera::project(arma::Col<double> point)
+{
+    point = frame*point;
+    point[2] = -point[2];
+    return { point[0]/point[2], point[1]/point[2], point[2] };
+}
+
+std::list< arma::Col<double> > Camera::project(std::list< arma::Col<double> > points)
+{
+    std::list< arma::Col<double> > ret;
+    for(auto point: points) ret.push_back(project(point));
+    return ret;
+}
+
+std::list< arma::Col<double> > Circle::as_path(const int points)
+{
+    return Ellipse(*this).as_path(); //Ah re
 }
