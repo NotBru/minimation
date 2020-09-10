@@ -54,6 +54,8 @@ public:
     arma::Col<double> project_NDC(arma::Col<double>);
 
     std::list< arma::Col<double> > project_NDC(std::list< arma::Col<double> >);
+
+    static Camera from_polars(const double rho=1, const double phi=0, const double theta=M_PI/2, const double rot=0);
 };
 
 class Ellipse;
@@ -171,7 +173,7 @@ namespace tests
     
 
             std::ostringstream stringStream;
-            stringStream << "test_draw_normal_circle_" << std::setfill('0') << std::setw(3) << i << ".png";
+            stringStream << "test_draw_spinning_circle_" << std::setfill('0') << std::setw(3) << i << ".png";
             cairo_surface_write_to_png(surface, stringStream.str().c_str()); // Memory leak, too lazy to fix
     
             // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" output.mp4
@@ -181,12 +183,167 @@ namespace tests
         }
     }
 
+    void rotating_frame_circle()
+    {
+        //TODO: Fix this
+        double dtheta=2*M_PI/180;
+        std::list<Circle> circles;
+        std::list< std::vector< double > > colors;
+        circles.push_back(Circle({0, 0, 0}, {0, 0, 1}));
+        circles.push_back(Circle({0, 0, 0}, {0, 1, 0}));
+        circles.push_back(Circle({0, 0, 0}, {1, 0, 0}));
+        colors.push_back({ 0, 0, 1 });
+        colors.push_back({ 0, 1, 0 });
+        colors.push_back({ 1, 0, 0 });
+        for(int i=0; i<720; i++)
+        {
+            auto camera = Camera::from_polars(5.0, i*dtheta, M_PI/2-i*dtheta/2);
+            cairo_surface_t *surface;
+            cairo_t *cr;
+    
+            surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
+            cr = cairo_create(surface);
+            cairo_surface_set_device_scale(surface, 512, 512);
+            cairo_set_line_width(cr, 0.01);
+    
+            cairo_paint(cr);
+    
+            cairo_set_source_rgb(cr, 1, 1, 1);
+            auto it_circles=circles.begin();
+            auto it_colors=colors.begin();
+            while(it_circles!=circles.end())
+            {
+                cairo_set_source_rgb(cr, (*it_colors)[0], (*it_colors)[1], (*it_colors)[2]);
+                auto path = camera.project_NDC(it_circles->as_path(128));
+                cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
+                for(auto point: path)
+                    cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
+                cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
+                cairo_stroke(cr);
+                ++it_circles;
+                ++it_colors;
+            }
+
+            std::ostringstream stringStream;
+            stringStream << "test_rotating_frame_circle_" << std::setfill('0') << std::setw(3) << i << ".png";
+            cairo_surface_write_to_png(surface, stringStream.str().c_str()); // Memory leak, too lazy to fix
+    
+            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" output.mp4
+            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p output.mp4
+            cairo_destroy(cr);
+            cairo_surface_destroy(surface);
+        }
+    }
+
+    void rotating_frame_axis()
+    {
+        //TODO: Fix this
+        double dtheta=2*M_PI/180;
+        std::list< std::list< arma::Col<double> > > axes;
+        std::list< std::vector< double > > colors;
+        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 0, 1} });
+        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 1, 0} });
+        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{1, 0, 0} });
+        colors.push_back({ 0, 0, 1 });
+        colors.push_back({ 0, 1, 0 });
+        colors.push_back({ 1, 0, 0 });
+        for(int i=0; i<720; i++)
+        {
+            auto camera = Camera::from_polars(5.0, i*dtheta, M_PI/2-i*dtheta/2);
+            cairo_surface_t *surface;
+            cairo_t *cr;
+    
+            surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
+            cr = cairo_create(surface);
+            cairo_surface_set_device_scale(surface, 512, 512);
+            cairo_set_line_width(cr, 0.01);
+    
+            cairo_paint(cr);
+    
+            cairo_set_source_rgb(cr, 1, 1, 1);
+            auto it_axes=axes.begin();
+            auto it_colors=colors.begin();
+            while(it_axes!=axes.end())
+            {
+                cairo_set_source_rgb(cr, (*it_colors)[0], (*it_colors)[1], (*it_colors)[2]);
+                auto path = camera.project_NDC(*it_axes);
+                cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
+                for(auto point: path)
+                    cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
+                cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
+                cairo_stroke(cr);
+                ++it_axes;
+                ++it_colors;
+            }
+
+            std::ostringstream stringStream;
+            stringStream << "test_rotating_frame_axes" << std::setfill('0') << std::setw(3) << i << ".png";
+            cairo_surface_write_to_png(surface, stringStream.str().c_str()); // Memory leak, too lazy to fix
+    
+            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" output.mp4
+            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p output.mp4
+            cairo_destroy(cr);
+            cairo_surface_destroy(surface);
+        }
+    }
+
+    void rotating_frame_axis_b()
+    {
+        //TODO: Fix this
+        double dtheta=2*M_PI/180;
+        std::list< std::list< arma::Col<double> > > axes;
+        std::list< std::vector< double > > colors;
+        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 0, 1} });
+        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 1, 0} });
+        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{1, 0, 0} });
+        colors.push_back({ 0, 0, 1 });
+        colors.push_back({ 0, 1, 0 });
+        colors.push_back({ 1, 0, 0 });
+        for(int i=0; i<720; i++)
+        {
+            auto camera = Camera::from_polars(5.0, 0, M_PI/2-M_PI/8, i*dtheta/4);
+            cairo_surface_t *surface;
+            cairo_t *cr;
+    
+            surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
+            cr = cairo_create(surface);
+            cairo_surface_set_device_scale(surface, 512, 512);
+            cairo_set_line_width(cr, 0.01);
+    
+            cairo_paint(cr);
+    
+            cairo_set_source_rgb(cr, 1, 1, 1);
+            auto it_axes=axes.begin();
+            auto it_colors=colors.begin();
+            while(it_axes!=axes.end())
+            {
+                cairo_set_source_rgb(cr, (*it_colors)[0], (*it_colors)[1], (*it_colors)[2]);
+                auto path = camera.project_NDC(*it_axes);
+                cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
+                for(auto point: path)
+                    cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
+                cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
+                cairo_stroke(cr);
+                ++it_axes;
+                ++it_colors;
+            }
+
+            std::ostringstream stringStream;
+            stringStream << "test_rotating_frame_axes_b" << std::setfill('0') << std::setw(3) << i << ".png";
+            cairo_surface_write_to_png(surface, stringStream.str().c_str()); // Memory leak, too lazy to fix
+    
+            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" output.mp4
+            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p output.mp4
+            cairo_destroy(cr);
+            cairo_surface_destroy(surface);
+        }
+    }
 
 };
 
 int main()
 {
-    tests::draw_spinning_circle();
+    tests::rotating_frame_axis_b();
     return 0;
 }
 
@@ -222,6 +379,17 @@ FrameTransform operator*(const FrameTransform &left, const FrameTransform &right
 arma::Col<double> operator*(const FrameTransform &left, const arma::Col<double> &right)
 {
     return left.rotscale*(right+left.traslation);
+}
+
+Camera Camera::from_polars(const double rho, const double phi, const double theta, const double radial)
+{
+    arma::Col<double> x_{            -sin(phi),             cos(phi),          0 },
+                      y_{ cos(phi)*cos(theta), sin(phi)*cos(theta), -sin(theta) },
+                      z{ cos(phi)*sin(theta), sin(phi)*sin(theta),  cos(theta) };
+    arma::Col<double> x = cos(radial)*x_-sin(radial)*y_,
+                      y = sin(radial)*x_+cos(radial)*y_;
+    FrameTransform frame(rho*z, {x, y, z});
+    return Camera(frame);
 }
 
 arma::Col<double> Camera::project(arma::Col<double> point)
