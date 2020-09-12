@@ -12,10 +12,7 @@ private:
     arma::Col<double> traslation;
     arma::Mat<double> rotscale;
 
-    arma::Mat<double> rotation_matrix(arma::Col<double> versor, double angle);
-
 public:
-
     FrameTransform(arma::Col<double> origin={0, 0, 0},
                    std::array<arma::Col<double>, 3> axes={ arma::Col<double>{1, 0, 0},
                                                            arma::Col<double>{0, 1, 0},
@@ -23,9 +20,16 @@ public:
         traslation{ -origin }, rotscale{ arma::inv(arma::join_rows( axes[0], axes[1], axes[2] ) ) }
     {}
 
+    static arma::Mat<double> rotation_matrix(arma::Col<double> versor, double angle);
+
     FrameTransform &rotate(const arma::Col<double> &);
 
     FrameTransform &traslate(const arma::Col<double> &);
+
+    arma::Col<double> origin() const
+    {
+        return -traslation;
+    }
 
     friend FrameTransform operator*(const FrameTransform &, const FrameTransform &);
 
@@ -47,15 +51,31 @@ public:
         half_height{ height/2 }
     {}
 
-    arma::Col<double> project(arma::Col<double> point);
+    arma::Col<double> origin() const
+    {
+        return frame.origin();
+    }
 
-    std::list< arma::Col<double> > project(std::list< arma::Col<double> > point);
+    void move_projection_plane(double move)
+    {
+        focal_distance+=move;
+    }
 
-    arma::Col<double> project_NDC(arma::Col<double>);
+    Camera &traslate(const arma::Col<double> &displacement)
+    {
+        frame.traslate(displacement);
+        return *this;
+    }
 
-    std::list< arma::Col<double> > project_NDC(std::list< arma::Col<double> >);
+    arma::Col<double> project(arma::Col<double> point) const;
 
-    static Camera from_polars(const double rho=1, const double phi=0, const double theta=M_PI/2, const double rot=0);
+    std::list< arma::Col<double> > project(std::list< arma::Col<double> > point) const;
+
+    arma::Col<double> project_NDC(arma::Col<double>) const;
+
+    std::list< arma::Col<double> > project_NDC(std::list< arma::Col<double> >) const;
+
+    static Camera from_polars(const double rho=1, const double phi=0, const double theta=M_PI/2, const double radial=0);
 };
 
 class Ellipse;
@@ -97,13 +117,23 @@ public:
         axis2 = arma::cross(versor, axis1);
     }
 
-    std::list< arma::Col<double> > as_path(const int points=180)
-    {
-        double dtheta=2*M_PI/points;
-        std::list< arma::Col<double> > ret;
-        for(int i=0; i<points; i++) ret.push_back(arma::Col<double>{ center+axis1*cos(i*dtheta)+axis2*sin(i*dtheta) });
-        return ret;
-    }
+    std::list< arma::Col<double> > as_path(const int points=180);
+};
+
+class Sphere
+{
+private:
+    arma::Col<double> center;
+    double radius;
+
+    Sphere() {}
+public:
+    Sphere(const arma::Col<double> &center, const double radius):
+        center{ center },
+        radius{ radius }
+    {}
+
+    std::list< arma::Col<double> > contour(const Camera &);
 };
 
 namespace tests
@@ -341,9 +371,120 @@ namespace tests
 
 };
 
+void follow_no_join(cairo_t *cr, std::list< arma::Col<double> > path)
+{
+    cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
+    for(auto point: path) cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
+}
+
+void follow(cairo_t *cr, std::list< arma::Col<double> > path)
+{
+    cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
+    for(auto point: path) cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
+    cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
+}
+
 int main()
 {
-    tests::rotating_frame_axis_b();
+    cairo_surface_t *surface;
+    cairo_t *cr;
+    
+    surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
+    cr = cairo_create(surface);
+    cairo_surface_set_device_scale(surface, 512, 512);
+    cairo_set_line_width(cr, 0.01);
+    
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    cairo_paint(cr);
+    
+    auto camera = Camera::from_polars(3.5, M_PI/2/2, M_PI/2-M_PI/6);
+    camera.move_projection_plane(1);
+    camera.traslate(arma::Col<double>{0, -0.4, 0.2});
+
+    // Axes behind sphere
+    cairo_set_source_rgb(cr, 0.4, 0, 0.4);
+    cairo_set_line_width(cr, 0.007);
+
+    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{1, 0, 0} }));
+    cairo_stroke(cr);
+    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 1, 0} }));
+    cairo_stroke(cr);
+    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 0, 1} }));
+    cairo_stroke(cr);
+
+    // omega vector
+    double omega_x=0.4, omega_z=2*omega_x,
+           q=1.2;
+    cairo_set_line_width(cr, 0.007);
+    cairo_set_source_rgb(cr, 0, 0.8, 0.4);
+    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{omega_x, 0, omega_z} }));
+    cairo_stroke(cr);
+    cairo_set_line_width(cr, 0.004);
+    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{omega_x, 0, 0} }));
+    cairo_stroke(cr);
+    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 0, omega_z} }));
+    cairo_stroke(cr);
+    cairo_set_source_rgb(cr, 0.3, 1, 0.7);
+    follow(cr, camera.project({ arma::Col<double>{omega_x, 0, omega_z}, arma::Col<double>{q*omega_x, 0, omega_z} }));
+    cairo_stroke(cr);
+    cairo_set_source_rgb(cr, 0, 1, 0.5);
+    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{q*omega_x, 0, omega_z} }));
+    cairo_stroke(cr);
+
+    // Sphere fill
+    cairo_set_line_width(cr, 0.01);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.4);
+    follow(cr, Sphere(arma::Col<double>{0, 0, 0}, 1).contour(camera));
+    cairo_fill(cr);
+
+    // Axes in front of sphere
+    cairo_set_source_rgb(cr, 0.4, 0, 0.4);
+    cairo_set_line_width(cr, 0.007);
+
+    follow(cr, camera.project({ arma::Col<double>{1, 0, 0}, arma::Col<double>{1.5, 0, 0} }));
+    cairo_stroke(cr);
+    follow(cr, camera.project({ arma::Col<double>{0, 1, 0}, arma::Col<double>{0, 1.5, 0} }));
+    cairo_stroke(cr);
+    follow(cr, camera.project({ arma::Col<double>{0, 0, 1}, arma::Col<double>{0, 0, 1.5} }));
+    cairo_stroke(cr);
+
+    // Trajectory
+    cairo_set_line_width(cr, 0.004);
+    cairo_set_source_rgb(cr, 0, 0.8, 0.8);
+    {
+        int points=128; 
+        arma::Col<double> omega{ omega_x, 0, omega_z };
+        double dtheta=0.8*2*M_PI/points;
+        omega = omega/arma::norm(omega);
+        std::list< arma::Col<double> > traj;
+        for(int i=0; i<points; i++) traj.push_back(FrameTransform::rotation_matrix(omega, i*dtheta)*arma::Col<double>{0, 0, 1});
+        std::cout << traj.back() << "\n";
+        traj = camera.project(traj);
+        follow_no_join(cr, traj);
+        cairo_stroke(cr);
+    }
+
+    // Delta trajectory
+
+    cairo_set_line_width(cr, 0.004);
+    cairo_set_source_rgb(cr, 0, 0.9, 0.9);
+    {
+        int points=128; 
+        arma::Col<double> omega{ q*omega_x, 0, omega_z };
+        double dtheta=0.8*2*M_PI*arma::norm(omega)/arma::norm(arma::Col<double>{ omega_x, 0, omega_z })/points;
+        omega=omega/arma::norm(omega);
+        std::list< arma::Col<double> > traj;
+        for(int i=0; i<points; i++) traj.push_back(FrameTransform::rotation_matrix(omega, i*dtheta)*arma::Col<double>{0, 0, 1});
+        std::cout << traj.back() << "\n";
+        traj = camera.project(traj);
+        follow_no_join(cr, traj);
+        cairo_stroke(cr);
+    }
+    
+    cairo_surface_write_to_png(surface, "test.png");
+    
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
     return 0;
 }
 
@@ -383,37 +524,37 @@ arma::Col<double> operator*(const FrameTransform &left, const arma::Col<double> 
 
 Camera Camera::from_polars(const double rho, const double phi, const double theta, const double radial)
 {
-    arma::Col<double> x_{            -sin(phi),             cos(phi),          0 },
+    arma::Col<double> x_{           -sin(phi),            cos(phi),          0 },
                       y_{ cos(phi)*cos(theta), sin(phi)*cos(theta), -sin(theta) },
-                      z{ cos(phi)*sin(theta), sin(phi)*sin(theta),  cos(theta) };
+                       z{ cos(phi)*sin(theta), sin(phi)*sin(theta),  cos(theta) };
     arma::Col<double> x = cos(radial)*x_-sin(radial)*y_,
                       y = sin(radial)*x_+cos(radial)*y_;
     FrameTransform frame(rho*z, {x, y, z});
     return Camera(frame);
 }
 
-arma::Col<double> Camera::project(arma::Col<double> point)
+arma::Col<double> Camera::project(arma::Col<double> point) const
 {
     point = frame*point;
     point[2] = -point[2]/focal_distance;
     return { point[0]/point[2], point[1]/point[2], point[2] };
 }
 
-std::list< arma::Col<double> > Camera::project(std::list< arma::Col<double> > points)
+std::list< arma::Col<double> > Camera::project(std::list< arma::Col<double> > points) const
 {
     std::list< arma::Col<double> > ret;
     for(auto point: points) ret.push_back(project(point));
     return ret;
 }
 
-arma::Col<double> Camera::project_NDC(arma::Col<double> point)
+arma::Col<double> Camera::project_NDC(arma::Col<double> point) const
 {
     point = frame*point;
     point[2] = -point[2]/focal_distance;
     return { half_width*point[0]/point[2], half_height*point[1]/point[2], point[2] }; //WARNING: no es exactamente NDC, ya que z debería ir de 0 a 1 tmb.
 }
 
-std::list< arma::Col<double> > Camera::project_NDC(std::list< arma::Col<double> > points)
+std::list< arma::Col<double> > Camera::project_NDC(std::list< arma::Col<double> > points) const
 {
     std::list< arma::Col<double> > ret;
     for(auto point: points) ret.push_back(project_NDC(point));
@@ -423,4 +564,20 @@ std::list< arma::Col<double> > Camera::project_NDC(std::list< arma::Col<double> 
 std::list< arma::Col<double> > Circle::as_path(const int points)
 {
     return Ellipse(*this).as_path(points); //Ah re
+}
+
+std::list< arma::Col<double> > Ellipse::as_path(const int points)
+{
+    double dtheta=2*M_PI/points;
+    std::list< arma::Col<double> > ret;
+    for(int i=0; i<points; i++) ret.push_back(arma::Col<double>{ center+axis1*cos(i*dtheta)+axis2*sin(i*dtheta) });
+    return ret;
+}
+
+std::list< arma::Col<double> > Sphere::contour(const Camera &camera)
+{
+    arma::Col<double> rel=center-camera.origin();
+    double norm=arma::norm(rel);
+    double q=radius*radius/arma::norm(rel)/arma::norm(rel);
+    return camera.project(Circle((1-q)*rel+camera.origin(), rel, sqrt(radius*radius-q*q*norm*norm)).as_path());
 }
