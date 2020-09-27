@@ -93,13 +93,6 @@ namespace minim
         fill{ 0, 0, 0, 0 }
       {}
 
-      Path(const arma::Col<double> rorigin, const int dummy):
-        d{ (std::string)"m "+std::to_string(rorigin[0])+","+std::to_string(rorigin[1]) },
-        current{ rorigin },
-        stroke{ 0, 0, 0 },
-        fill{ 0, 0, 0, 0 }
-      {}
-
       void L(const arma::Col<double> target)
       {
         command_insertion(" L", {target});
@@ -311,6 +304,7 @@ namespace minim
       inline
       arma::Row<double> orthogonal(arma::Col<double> vect)
       {
+        if(arma::size(vect)[0]==3) return {-vect[1], vect[0], 0};
         return {-vect[1], vect[0]};
       }
     }
@@ -410,7 +404,7 @@ namespace minim
   FrameTransform operator*(const FrameTransform &left, const FrameTransform &right)
   {
     FrameTransform ret;
-    ret.traslation = right.rotscale*right.traslation+left.rotscale ;
+    ret.traslation = right.rotscale*right.traslation+left.traslation ;
     ret.rotscale = left.rotscale*right.rotscale;
     return ret;
   }
@@ -428,7 +422,7 @@ namespace minim
   
   public:
     Camera(const FrameTransform &frame=FrameTransform{}, double focal_distance=1, double width=2, double height=2):
-      frame{ FrameTransform{arma::Col<double>{0, 0, -focal_distance}}*frame },
+      frame{ FrameTransform(arma::Col<double>{0, 0, -focal_distance})*frame },
       focal_distance{ focal_distance },
       half_width{ width/2 },
       half_height{ height/2 }
@@ -515,11 +509,23 @@ namespace minim
       return ret;
     }
 
+    std::function<arma::Col<double>(double)> project(std::function<arma::Col<double>(double)> path) const
+    {
+      FrameTransform frame=this->frame;
+      double focal_distance=this->focal_distance;
+      return [frame, focal_distance, path](double t)->arma::Col<double>
+      {
+        arma::Col<double> ret = frame*path(t);
+        ret[2] = -ret[2]/focal_distance;
+        return { ret[0]/ret[2], ret[1]/ret[2], ret[2] };
+      };
+    }
+
     arma::Col<double> project_NDC(arma::Col<double> point) const
     {
       point = frame*point;
       point[2] = -point[2]/focal_distance;
-      return { point[0]/point[2]/half_width, point[1]/point[2]/half_width, point[2] };
+      return { point[0]/point[2]/half_width, point[1]/point[2]/half_height, point[2] };
     }
 
     std::list< arma::Col<double> > project_NDC(std::list< arma::Col<double> > points) const
@@ -527,6 +533,20 @@ namespace minim
       std::list< arma::Col<double> > ret;
       for(auto point: points) ret.push_back(project_NDC(point));
       return ret;
+    }
+
+    std::function<arma::Col<double>(double)> project_NDC(std::function<arma::Col<double>(double)> path) const
+    {
+      FrameTransform frame=this->frame;
+      double focal_distance=this->focal_distance,
+             half_width=this->half_width,
+             half_height=this->half_height;
+      return [frame, focal_distance, half_width, half_height, path](double t)->arma::Col<double>
+      {
+        arma::Col<double> ret = frame*path(t);
+        ret[2] = -ret[2]/focal_distance;
+        return { ret[0]/ret[2]/half_width, ret[1]/ret[2]/half_height, ret[2] };
+      };
     }
 
     static Camera from_polars(const double rho=1, const double phi=0, const double theta=M_PI/2, const double radial=0);
@@ -561,7 +581,9 @@ namespace minim
       radius{ radius*normal/arma::norm(normal) }
     {}
   
-    std::list< arma::Col<double> > as_path(const int points);
+    std::list< arma::Col<double> > as_path(const int points) const;
+
+    std::function<arma::Col<double>(double)> as_function() const;
     
     friend Ellipse;
   };
@@ -586,19 +608,35 @@ namespace minim
       axis2 = arma::cross(versor, axis1);
     }
 
-    std::list< arma::Col<double> > as_path(const int points)
+    std::list< arma::Col<double> > as_path(const int points) const
     {
       double dtheta=2*M_PI/points;
       std::list< arma::Col<double> > ret;
       for(int i=0; i<points; i++) ret.push_back(arma::Col<double>{ center+axis1*cos(i*dtheta)+axis2*sin(i*dtheta) });
       return ret;
     }
+    
+    std::function<arma::Col<double>(double)> as_function() const
+    {
+      arma::Col<double> center=this->center,
+                        axis1=this->axis1,
+                        axis2=this->axis2;
+      return [center, axis1, axis2](double t)->arma::Col<double>
+      {
+        return center+axis1*cos(2*M_PI*t)+axis2*sin(2*M_PI*t);
+      };
+    }
   };
 
   // ¿Hay forma de meter esto en Circle directamente?
-  std::list< arma::Col<double> > Circle::as_path(const int points=128)
+  std::list< arma::Col<double> > Circle::as_path(const int points=128) const
   {
     return Ellipse(*this).as_path(points); //Ah re
+  }
+
+  std::function<arma::Col<double>(double)> Circle::as_function() const
+  {
+    return Ellipse(*this).as_function();
   }
 
   class Sphere
@@ -614,6 +652,9 @@ namespace minim
       radius{ radius }
     {}
 
+    /*
+     * TODO: get rid of this?
+     *
     std::list< arma::Col<double> > contour(const Camera &camera)
     {
       arma::Col<double> rel=center-camera.origin();
@@ -621,34 +662,141 @@ namespace minim
       double q=radius*radius/arma::norm(rel)/arma::norm(rel);
       return camera.project(Circle((1-q)*rel+camera.origin(), rel, sqrt(radius*radius-q*q*norm*norm)).as_path());
     }
+    */
+
+    std::function<arma::Col<double>(double)> contour(const Camera &camera)
+    {
+      arma::Col<double> rel=center-camera.origin();
+      double norm=arma::norm(rel);
+      double q=radius*radius/arma::norm(rel)/arma::norm(rel);
+      return camera.project(Circle((1-q)*rel+camera.origin(), rel, sqrt(radius*radius-q*q*norm*norm)).as_function());
+    }
+
+    std::function<arma::Col<double>(double)> contour_NDC(const Camera &camera) const
+    {
+      arma::Col<double> rel=center-camera.origin();
+      double norm=arma::norm(rel);
+      double q=radius*radius/arma::norm(rel)/arma::norm(rel);
+      return camera.project_NDC(Circle((1-q)*rel+camera.origin(), rel, sqrt(radius*radius-q*q*norm*norm)).as_function());
+    }
   };
+
+  namespace samples
+  {
+    void svg_square()
+    {
+      svg::Surface surface{512, 512};
+        // 512x512 px surface
+
+      svg::Path square({128, 128});
+        // Path starting at (128, 128)
+      square.l({256, 0});
+        // Line with relative displacement (256, 0)
+      square.l({0, 256});
+      square.l({-256, 0});
+      square.Z();
+        // Close path
+      square.set_fill({1, 1, 1});
+        // White fill
+      square.set_stroke({0, 0, 0});
+        // Black stroke
+      square.set_width(2);
+        // 2px stroke width
+
+      surface << square;
+        // Send square to surface
+
+      std::ofstream outf("svg_square.svg");
+      outf << surface;
+        // Print surface to file
+    }
+
+    void svg_quadratic_approximation()
+    {
+      svg::Surface surface{512, 512};
+
+      svg::Path square({0, 0});
+      square.L({0, 512});
+      square.L({512, 512});
+      square.L({512, 0});
+      square.Z();
+
+      square.set_fill({1, 1, 1});
+
+      surface << square;
+
+
+      std::function<arma::Col<double>(double)> circle_parametrization=
+        [](double t)->arma::Col<double>{ return {256+128*cos(2*M_PI*t), 256+128*sin(2*M_PI*t)}; };
+
+      svg::Path precise_enough_circle = svg::quad_approx(circle_parametrization, 8);
+        // Quadratic approximation from the circle's parametrization, taking 8+1 points.
+
+      precise_enough_circle.set_stroke_opacity(0);
+      precise_enough_circle.set_fill({0, 0.5, 0.5});
+      
+      surface << precise_enough_circle;
+
+
+      svg::Path not_so_precise_circle = svg::quad_approx(circle_parametrization, 3);
+
+      not_so_precise_circle.set_width(2);
+      not_so_precise_circle.set_stroke({ 0.8, 0.2, 0.2 });
+
+      surface << not_so_precise_circle;
+
+      std::ofstream outf("svg_quadratic_approximation.svg");
+      outf << surface;
+    }
+
+    void rotating_circles()
+    {
+      Camera default_camera{FrameTransform{}, 10, 4, 4};
+
+      // Relative position of unrotated spheres to center
+      std::list< arma::Col<double> > sphere_rels;
+      for(int i=0; i<27; i++) {
+        if(i%3!=1 || (i/3)%3!=1 || (i/9)%3!=1 )
+        {
+          sphere_rels.push_back({ (double)(i%3-1), (double)((i/3)%3-1), (double)((i/9)%3-1) });
+          sphere_rels.back()=1/arma::norm(sphere_rels.back())*sphere_rels.back();
+        }
+      }
+
+      for(int i=0; i<360; i++)
+      {
+        svg::Surface surface({512, 512});
+        std::list< arma::Col<double> > sphere_centers;
+        for(auto sphere_rel: sphere_rels)
+          sphere_centers.push_back( arma::Col<double>{ 0, 0, -3 }
+                                   +FrameTransform::rotation_matrix({ 0, sin(0.3*2*M_PI*0), cos(0.3*2*M_PI*0) }, 2*M_PI/(double)360*2*i)*sphere_rel);
+        sphere_centers.sort([](arma::Col<double> left, arma::Col<double> right)->bool{ return arma::norm(left)<arma::norm(right); });
+        for(auto sphere_center: sphere_centers)
+        {
+          Sphere sphere(sphere_center, 0.2);
+          svg::Path sphere_path = svg::quad_approx(
+              [sphere, default_camera](double t)->arma::Col<double>
+              {
+                return 512*(sphere.contour_NDC(default_camera)(t)+arma::Col<double>{1, 1, 0})/2;
+              },
+              8);
+          sphere_path.set_fill({1, 1, 1, 0.5});
+          sphere_path.set_width(3);
+          surface << sphere_path;
+        }
+
+        // output
+        std::ofstream outf(std::string("rotating_circles_")+std::to_string(i)+".svg");
+        outf << surface;
+      }
+    }
+  }
 };
 
 int main()
 {
-  minim::svg::Surface surface{512, 512};
-
-  minim::svg::Path square({128, 128});
-  square.l({256, 0});
-  square.l({0, 256});
-  square.l({-256, 0});
-  square.Z();
-  square.set_fill({1, 1, 1});
-  square.set_stroke({0, 0, 0});
-  square.set_width(2);
-  surface << square;
-
-  minim::svg::Path very_precise_circle = minim::svg::quad_approx([](double t)->arma::Col<double>{ return {256+128*cos(2*M_PI*t), 256+128*sin(2*M_PI*t)}; }, 128);
-  very_precise_circle.set_stroke_opacity(0);
-  very_precise_circle.set_fill({ 0, 0.8, 0.8 });
-  surface << very_precise_circle;
-
-  minim::svg::Path not_so_precise_circle = minim::svg::quad_approx([](double t)->arma::Col<double>{ return {256+128*cos(2*M_PI*t), 256+128*sin(2*M_PI*t)}; }, 8);
-  not_so_precise_circle.set_width(2);
-  not_so_precise_circle.set_stroke({ 0.8, 0.2, 0.2 });
-  surface << not_so_precise_circle;
-
-  std::ofstream outf("test.svg");
-  outf << surface;
+  // minim::samples::svg_square();
+  // minim::samples::svg_quadratic_approximation();
+  // minim::samples::rotating_circles();
   return 0;
 }
