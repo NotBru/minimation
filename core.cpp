@@ -1,30 +1,401 @@
 #include <armadillo>
 #include <list>
 #include <cmath>
-#include <cairo.h>
 
 #include <iomanip>
 #include <iostream>
 
-class FrameTransform
+namespace minim
 {
-private:
+  namespace svg
+  {
+    class Path;
+
+    class Surface
+    {
+      int width, height;
+      std::string content;
+
+    public:
+      Surface(int width=512, int height=512):
+        width{ width },
+        height{ height }
+      {}
+
+      friend Surface& operator<<(Surface&, const Path&);
+
+      friend std::ostream& operator<<(std::ostream &, const Surface);
+    };
+
+    std::ostream& operator<<(std::ostream &out, const Surface surface)
+    {
+      out << "<svg version=\"1.1\"\n"
+             "     baseProfile=\"full\"\n"
+             "     width=\"" << surface.width << "\" height=\"" << surface.height << "\"\n"
+             "     xmlns=\"http://www.w3.org/2000/svg\">\n";
+      out << surface.content;
+      out << "</svg>";
+      return out;
+    }
+
+    class Path
+    {
+    public:
+      enum class Cap { butt, square, round };
+
+    private:
+      std::list<std::string> d;
+      arma::Col<double> current;
+      std::vector<double> stroke,
+                          fill,
+                          global_opacity;
+      Cap linecap=Cap::butt, linejoin=Cap::butt;
+      int padding=2;
+      double width=1;
+      std::list<double> dasharray;
+
+      void command_insertion(std::string command, std::list< arma::Col<double> > params)
+      {
+        std::string push=command;
+        for(auto param: params) push+=(std::string)(" ")+std::to_string(param[0])+","+std::to_string(param[1]);
+        d.push_back(push);
+        current = params.back();
+      }
+
+      void set_rgba(std::vector<double> &prop, const std::vector<double> rgba)
+      {
+        if(rgba.size()<3 || rgba.size()>4) throw bad_rgba{};
+        for(int i=0; i<rgba.size(); i++) if(rgba[i]<0 || rgba[i]>1) throw bad_rgba{};
+        prop=rgba;
+      }
+
+      void set_opacity(std::vector<double> &prop, const double opacity)
+      {
+        if(opacity<0 || opacity>1) throw bad_rgba{};
+        if(prop.size()==0 || prop.size()==3) prop.push_back(opacity);
+        else prop.back()=opacity;
+      }
+
+      double get_opacity(std::vector<double> &prop)
+      {
+        if(prop.size()==1 || prop.size()==3) return 1;
+        return prop.back();
+      }
+
+    public:
+      class bad_rgba{};
+      class bad_length{};
+
+      Path(const arma::Col<double> origin):
+        d{ (std::string)"M "+std::to_string(origin[0])+","+std::to_string(origin[1]) },
+        current{ origin },
+        stroke{ 0, 0, 0 },
+        fill{ 0, 0, 0, 0 }
+      {}
+
+      Path(const arma::Col<double> rorigin, const int dummy):
+        d{ (std::string)"m "+std::to_string(rorigin[0])+","+std::to_string(rorigin[1]) },
+        current{ rorigin },
+        stroke{ 0, 0, 0 },
+        fill{ 0, 0, 0, 0 }
+      {}
+
+      void L(const arma::Col<double> target)
+      {
+        command_insertion(" L", {target});
+      }
+
+      void l(const arma::Col<double> rtarget)
+      {
+        command_insertion(" l", {rtarget});
+      }
+
+      void Z()
+      {
+        d.push_back(" Z");
+      }
+
+      void C(const arma::Col<double> first_handle, const arma::Col<double> second_handle, const arma::Col<double> target)
+      {
+        command_insertion(" C", {first_handle, second_handle, target});
+      }
+
+      void C(const arma::Col<double> first_handle, const int dummy, const arma::Col<double> target)
+      {
+        command_insertion(" C", {first_handle, current, target});
+      }
+
+      void C(const int dummy, const arma::Col<double> second_handle, const arma::Col<double> target)
+      {
+        command_insertion(" C", {current, second_handle, target});
+      }
+
+      void c(const arma::Col<double> first_handle, const arma::Col<double> second_handle, const arma::Col<double> target)
+      {
+        command_insertion(" c", {first_handle, second_handle, target});
+      }
+
+      void c(const arma::Col<double> first_handle, const int dummy, const arma::Col<double> target)
+      {
+        command_insertion(" c", {first_handle, current, target});
+      }
+
+      void c(const int dummy, const arma::Col<double> second_handle, const arma::Col<double> target)
+      {
+        command_insertion(" c", {current, second_handle, target});
+      }
+
+      void S(const arma::Col<double> second_handle, const arma::Col<double> target)
+      {
+        command_insertion(" S", {second_handle, target});
+      }
+
+      void s(const arma::Col<double> second_handle, const arma::Col<double> target)
+      {
+        command_insertion(" s", {second_handle, target});
+      }
+
+      void Q(const arma::Col<double> handle, const arma::Col<double> target)
+      {
+        command_insertion(" Q", {handle, target});
+      }
+
+      void q(const arma::Col<double> handle, const arma::Col<double> target)
+      {
+        command_insertion(" q", {handle, target});
+      }
+
+      void T(const arma::Col<double> target)
+      {
+        command_insertion(" T", {target});
+      }
+
+      void t(const arma::Col<double> target)
+      {
+        command_insertion(" t", {target});
+      }
+
+      void set_stroke(const std::vector<double> stroke)
+      {
+        set_rgba(this->stroke, stroke);
+      }
+
+      void set_stroke_opacity(const double opacity)
+      {
+        set_opacity(this->stroke, opacity);
+      }
+
+      double get_stroke_opacity()
+      {
+        return get_opacity(stroke);
+      }
+
+      std::vector<double> get_stroke()
+      {
+        return stroke;
+      }
+
+      void set_fill(std::vector<double> fill)
+      {
+        set_rgba(this->fill, fill);
+      }
+
+      void set_fill_opacity(const double opacity)
+      {
+        set_opacity(fill, opacity);
+      }
+
+      void set_global_opacity(const double opacity)
+      {
+        set_opacity(global_opacity, opacity);
+      }
+
+      void reset_global_opacity()
+      {
+        global_opacity.resize(0);
+      }
+
+      void set_linecap(Cap linecap)
+      {
+        this->linecap=linecap;
+      }
+
+      Cap get_linecap()
+      {
+        return linecap;
+      }
+
+      void set_linejoin(Cap linejoin)
+      {
+        this->linejoin=linejoin;
+      }
+
+      Cap get_linejoin()
+      {
+        return linejoin;
+      }
+
+      void set_width(double width)
+      {
+        if(width<0) throw bad_length{};
+        this->width=width;
+      }
+
+      double get_width()
+      {
+        return width;
+      }
+
+      void set_dasharray(std::list<double> dasharray)
+      {
+        for(auto dash: dasharray) if(dash<0) throw bad_length{};
+        this->dasharray=dasharray;
+      }
+
+      std::list<double> get_dasharray()
+      {
+        return dasharray;
+      }
+
+      friend Surface& operator<<(Surface&, const Path&);
+    };
+
+    Surface& operator<<(Surface& surface, const Path& path)
+    {
+      std::string d{""};
+      for(auto command: path.d) d+=command;
+
+      std::string padding = "\n";
+      padding += std::string(path.padding, ' ');
+
+      surface.content += padding+"<path d=\""+d+"\"";
+
+      padding += std::string(6, ' ');
+
+      if(path.stroke.size()>=3)
+        surface.content += padding+"stroke=\"rgb("
+                          +std::to_string((int)(255.9999*path.stroke[0]))+","
+                          +std::to_string((int)(255.9999*path.stroke[1]))+","
+                          +std::to_string((int)(255.9999*path.stroke[2]))+")\"";
+      // Maybe reduce duplicated code?
+      if(path.fill.size()>=3)
+        surface.content += padding+"fill=\"rgb("
+                          +std::to_string((int)(255.9999*path.fill[0]))+","
+                          +std::to_string((int)(255.9999*path.fill[1]))+","
+                          +std::to_string((int)(255.9999*path.fill[2]))+")\"";
+      if(path.global_opacity.size())
+        surface.content += padding+"opacity=\""
+                          +std::to_string(path.global_opacity[0])+"\"";
+      else
+      {
+        if(path.stroke.size()==1 || path.stroke.size()==4)
+          surface.content += padding+"stroke-opacity=\""
+                            +std::to_string(path.stroke.back())+"\"";
+        if(path.fill.size()==1 || path.fill.size()==4)
+          surface.content += padding+"fill-opacity=\""
+                            +std::to_string(path.fill.back())+"\"";
+      }
+      if(path.linecap!=Path::Cap::butt)
+        surface.content += padding+"stroke-linecap=\""+(path.linecap==Path::Cap::square?"square":"round")+"\"";
+      if(path.linejoin!=Path::Cap::butt)
+        surface.content += padding+"stroke-linejoin=\""+(path.linejoin==Path::Cap::square?"square":"round")+"\"";
+      if(path.width!=1)
+        surface.content += padding+"stroke-width=\""+std::to_string(path.width)+"\"";
+      surface.content += "/>\n";
+
+      return surface;
+    }
+
+    namespace
+    {
+      inline
+      arma::Row<double> orthogonal(arma::Col<double> vect)
+      {
+        return {-vect[1], vect[0]};
+      }
+    }
+
+    Path quad_approx(std::function<arma::Col<double>(double)> gamma, const int points=16, const int dts=128)
+    {
+      // TODO
+      // assert(points>=2 && dts>=points);
+      Path ret(gamma(0));
+      std::list< std::pair< arma::Row<double>, arma::Col<double> > > lines; // normal, point
+      lines.push_back({orthogonal(gamma(1/(double)dts)-gamma(0)), gamma(0)});
+      double dl=1/(double)points,
+             dt=1/(double)dts;
+      std::list<double> ts;
+      int j=1;
+      double accum=0, tot=0;
+      for(int i=1; i<dts; i++) tot+=arma::norm(gamma(i*dt)-gamma((i-1)*dt));
+      dl*=tot;
+      for(int i=1; j<points; i++)
+      {
+        accum+=arma::norm(gamma(i*dt)-gamma((i-1)*dt));
+        if(accum>j*dl)
+        {
+          j++;
+          ts.push_back(i*dt);
+        }
+      }
+      for(auto t: ts)
+        lines.push_back({orthogonal(gamma(t+1/(double)dts)-gamma(t-1/(double)dts)), gamma(t)});
+      lines.push_back({orthogonal(gamma(1)-gamma(1/(double)dts)), gamma(1)});
+
+      auto curr=lines.begin(),
+           next=lines.begin();
+      ++next;
+      for(; next!=lines.end(); curr=(next++))
+      {
+        ret.Q(arma::solve(arma::join_cols(curr->first, next->first),
+              arma::Col<double>{ arma::as_scalar(arma::dot(curr->first, curr->second)),
+                                 arma::as_scalar(arma::dot(next->first, next->second)) }),
+              next->second);
+      }
+      return ret;
+    }
+  }
+
+  class FrameTransform
+  {
+  private:
     arma::Col<double> traslation;
     arma::Mat<double> rotscale;
 
-public:
+  public:
     FrameTransform(arma::Col<double> origin={0, 0, 0},
                    std::array<arma::Col<double>, 3> axes={ arma::Col<double>{1, 0, 0},
                                                            arma::Col<double>{0, 1, 0},
                                                            arma::Col<double>{0, 0, 1} }):
-        traslation{ -origin }, rotscale{ arma::inv(arma::join_rows( axes[0], axes[1], axes[2] ) ) }
+      traslation{ -origin },
+      rotscale{ arma::inv(arma::join_rows(axes[0], axes[1], axes[2])) }
     {}
 
-    static arma::Mat<double> rotation_matrix(arma::Col<double> versor, double angle);
+    static arma::Mat<double> rotation_matrix(arma::Col<double> versor, double theta)
+    {
+      double x{versor[0]}, y{versor[1]}, z{versor[2]};
+      return arma::Mat<double>{ { cos(theta)+x*x*(1-cos(theta)), x*y*(1-cos(theta))-z*sin(theta), x*z*(1-cos(theta))+y*sin(theta) },
+                                { x*y*(1-cos(theta))+z*sin(theta), cos(theta)+y*y*(1-cos(theta)), y*z*(1-cos(theta))-x*sin(theta) },
+                                { x*z*(1-cos(theta))-y*sin(theta), y*z*(1-cos(theta))+x*sin(theta), cos(theta)+z*z*(1-cos(theta)) } };
+    }
 
-    FrameTransform &rotate(const arma::Col<double> &);
+    FrameTransform copy()
+    {
+      return *this;
+    }
 
-    FrameTransform &traslate(const arma::Col<double> &);
+    FrameTransform& traslate(const arma::Col<double> &displacement)
+    {
+      traslation = traslation - displacement;
+      return *this;
+    }
+
+    FrameTransform& rotate(const arma::Col<double> &rotation)
+    {
+      double theta=arma::norm(rotation);
+      rotscale = rotscale*arma::inv(rotation_matrix(1/theta*rotation, theta));
+      return *this;
+    }
 
     arma::Col<double> origin() const
     {
@@ -34,496 +405,135 @@ public:
     friend FrameTransform operator*(const FrameTransform &, const FrameTransform &);
 
     friend arma::Col<double> operator*(const FrameTransform &, const arma::Col<double> &);
+  };
 
-};
-
-class Camera
-{
-private:
-    FrameTransform frame;
-    double focal_distance, half_width, half_height;
-
-public:
-    Camera(const FrameTransform &frame=FrameTransform{}, double focal_distance=1, double width=2, double height=2):
-        frame{ frame },
-        focal_distance{ focal_distance },
-        half_width{ width/2 },
-        half_height{ height/2 }
-    {}
-
-    arma::Col<double> origin() const
-    {
-        return frame.origin();
-    }
-
-    void move_projection_plane(double move)
-    {
-        focal_distance+=move;
-    }
-
-    Camera &traslate(const arma::Col<double> &displacement)
-    {
-        frame.traslate(displacement);
-        return *this;
-    }
-
-    arma::Col<double> project(arma::Col<double> point) const;
-
-    std::list< arma::Col<double> > project(std::list< arma::Col<double> > point) const;
-
-    arma::Col<double> project_NDC(arma::Col<double>) const;
-
-    std::list< arma::Col<double> > project_NDC(std::list< arma::Col<double> >) const;
-
-    static Camera from_polars(const double rho=1, const double phi=0, const double theta=M_PI/2, const double radial=0);
-};
-
-class Ellipse;
-
-class Circle
-{
-private:
-    arma::Col<double> center, radius;
-
-public:
-    Circle(const arma::Col<double> &center, const arma::Col<double> &radius): center{ center }, radius{ radius }
-    {}
-
-    Circle(const arma::Col<double> &center, const arma::Col<double> &normal, const double radius): center{ center }, radius{ radius*normal/arma::norm(normal) }
-    {}
-
-    std::list< arma::Col<double> > as_path(const int points=180);
-    
-    friend Ellipse;
-};
-
-class Ellipse
-{
-private:
-    arma::Col<double> center, axis1, axis2;
-
-    Ellipse() {}
-public:
-    Ellipse(const Circle &circle): center{ circle.center }
-    {
-        double radius = arma::norm(circle.radius);
-        arma::Col<double> versor = 1/radius*circle.radius;
-
-        if(fabs(versor[0])>1-0.1) axis1 = arma::Col<double>{0, 1, 0}; // Pick the perpendicularest
-        else                      axis1 = arma::Col<double>{1, 0, 0}; //
-
-        axis1 = arma::cross(versor, axis1);
-        axis1 = radius/arma::norm(axis1)*axis1;
-        axis2 = arma::cross(versor, axis1);
-    }
-
-    std::list< arma::Col<double> > as_path(const int points=180);
-};
-
-class Sphere
-{
-private:
-    arma::Col<double> center;
-    double radius;
-
-    Sphere() {}
-public:
-    Sphere(const arma::Col<double> &center, const double radius):
-        center{ center },
-        radius{ radius }
-    {}
-
-    std::list< arma::Col<double> > contour(const Camera &);
-};
-
-namespace tests
-{
-    void normal_circle()
-    {
-        Circle circle({0, 0, -5}, {0, 0, 1});
-        auto path = circle.as_path(4);
-        for(auto point: path) {
-            if(fabs(arma::norm(point-arma::Col<double>{0, 0, -5})-1)>0.000001)
-            {
-                std::cout << "Circle thingy not working.\n";
-            }
-        }
-    }
-
-    void draw_normal_circle()
-    {
-        //TODO: Hide all cairo details in Scene
-        auto path = Camera{}.project_NDC(Circle({0, 0, -5}, {0, 0, 1}, 0.5).as_path(128));
-        cairo_surface_t *surface;
-        cairo_t *cr;
-
-        surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
-        cr = cairo_create(surface);
-        cairo_surface_set_device_scale(surface, 512, 512);
-        cairo_set_line_width(cr, 0.01);
-
-        cairo_set_source_rgb(cr, 0, 0, 0);
-        cairo_paint(cr);
-
-        cairo_set_source_rgb(cr, 1, 1, 1);
-        cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-        for(auto point: path)
-            cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
-        cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-        cairo_stroke(cr);
-
-        cairo_destroy(cr);
-        cairo_surface_destroy(surface);
-    }
-
-    void draw_spinning_circle()
-    {
-        //TODO: Hide all cairo details in Scene
-        double dtheta=2*M_PI/180;
-        for(int i=0; i<720; i++)
-        {
-            auto path = Camera{}.project_NDC(Circle({0, 0, -5+2*sin(i*dtheta)}, {cos(i*dtheta), 0, sin(i*dtheta)}, 0.5).as_path(128));
-            cairo_surface_t *surface;
-            cairo_t *cr;
-    
-            surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
-            cr = cairo_create(surface);
-            cairo_surface_set_device_scale(surface, 512, 512);
-            cairo_set_line_width(cr, 0.01);
-    
-            cairo_set_source_rgb(cr, 0, 0, 0);
-            cairo_paint(cr);
-    
-            cairo_set_source_rgb(cr, 1, 1, 1);
-            cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-            for(auto point: path)
-                cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
-            cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-            cairo_stroke(cr);
-    
-
-            std::ostringstream stringStream;
-            stringStream << "test_draw_spinning_circle_" << std::setfill('0') << std::setw(3) << i << ".png";
-            cairo_surface_write_to_png(surface, stringStream.str().c_str()); // Memory leak, too lazy to fix
-    
-            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" output.mp4
-            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p output.mp4
-            cairo_destroy(cr);
-            cairo_surface_destroy(surface);
-        }
-    }
-
-    void rotating_frame_circle()
-    {
-        //TODO: Fix this
-        double dtheta=2*M_PI/180;
-        std::list<Circle> circles;
-        std::list< std::vector< double > > colors;
-        circles.push_back(Circle({0, 0, 0}, {0, 0, 1}));
-        circles.push_back(Circle({0, 0, 0}, {0, 1, 0}));
-        circles.push_back(Circle({0, 0, 0}, {1, 0, 0}));
-        colors.push_back({ 0, 0, 1 });
-        colors.push_back({ 0, 1, 0 });
-        colors.push_back({ 1, 0, 0 });
-        for(int i=0; i<720; i++)
-        {
-            auto camera = Camera::from_polars(5.0, i*dtheta, M_PI/2-i*dtheta/2);
-            cairo_surface_t *surface;
-            cairo_t *cr;
-    
-            surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
-            cr = cairo_create(surface);
-            cairo_surface_set_device_scale(surface, 512, 512);
-            cairo_set_line_width(cr, 0.01);
-    
-            cairo_paint(cr);
-    
-            cairo_set_source_rgb(cr, 1, 1, 1);
-            auto it_circles=circles.begin();
-            auto it_colors=colors.begin();
-            while(it_circles!=circles.end())
-            {
-                cairo_set_source_rgb(cr, (*it_colors)[0], (*it_colors)[1], (*it_colors)[2]);
-                auto path = camera.project_NDC(it_circles->as_path(128));
-                cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-                for(auto point: path)
-                    cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
-                cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-                cairo_stroke(cr);
-                ++it_circles;
-                ++it_colors;
-            }
-
-            std::ostringstream stringStream;
-            stringStream << "test_rotating_frame_circle_" << std::setfill('0') << std::setw(3) << i << ".png";
-            cairo_surface_write_to_png(surface, stringStream.str().c_str()); // Memory leak, too lazy to fix
-    
-            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" output.mp4
-            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p output.mp4
-            cairo_destroy(cr);
-            cairo_surface_destroy(surface);
-        }
-    }
-
-    void rotating_frame_axis()
-    {
-        //TODO: Fix this
-        double dtheta=2*M_PI/180;
-        std::list< std::list< arma::Col<double> > > axes;
-        std::list< std::vector< double > > colors;
-        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 0, 1} });
-        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 1, 0} });
-        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{1, 0, 0} });
-        colors.push_back({ 0, 0, 1 });
-        colors.push_back({ 0, 1, 0 });
-        colors.push_back({ 1, 0, 0 });
-        for(int i=0; i<720; i++)
-        {
-            auto camera = Camera::from_polars(5.0, i*dtheta, M_PI/2-i*dtheta/2);
-            cairo_surface_t *surface;
-            cairo_t *cr;
-    
-            surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
-            cr = cairo_create(surface);
-            cairo_surface_set_device_scale(surface, 512, 512);
-            cairo_set_line_width(cr, 0.01);
-    
-            cairo_paint(cr);
-    
-            cairo_set_source_rgb(cr, 1, 1, 1);
-            auto it_axes=axes.begin();
-            auto it_colors=colors.begin();
-            while(it_axes!=axes.end())
-            {
-                cairo_set_source_rgb(cr, (*it_colors)[0], (*it_colors)[1], (*it_colors)[2]);
-                auto path = camera.project_NDC(*it_axes);
-                cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-                for(auto point: path)
-                    cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
-                cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-                cairo_stroke(cr);
-                ++it_axes;
-                ++it_colors;
-            }
-
-            std::ostringstream stringStream;
-            stringStream << "test_rotating_frame_axes" << std::setfill('0') << std::setw(3) << i << ".png";
-            cairo_surface_write_to_png(surface, stringStream.str().c_str()); // Memory leak, too lazy to fix
-    
-            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" output.mp4
-            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p output.mp4
-            cairo_destroy(cr);
-            cairo_surface_destroy(surface);
-        }
-    }
-
-    void rotating_frame_axis_b()
-    {
-        //TODO: Fix this
-        double dtheta=2*M_PI/180;
-        std::list< std::list< arma::Col<double> > > axes;
-        std::list< std::vector< double > > colors;
-        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 0, 1} });
-        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 1, 0} });
-        axes.push_back({ arma::Col<double>{0, 0, 0}, arma::Col<double>{1, 0, 0} });
-        colors.push_back({ 0, 0, 1 });
-        colors.push_back({ 0, 1, 0 });
-        colors.push_back({ 1, 0, 0 });
-        for(int i=0; i<720; i++)
-        {
-            auto camera = Camera::from_polars(5.0, 0, M_PI/2-M_PI/8, i*dtheta/4);
-            cairo_surface_t *surface;
-            cairo_t *cr;
-    
-            surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
-            cr = cairo_create(surface);
-            cairo_surface_set_device_scale(surface, 512, 512);
-            cairo_set_line_width(cr, 0.01);
-    
-            cairo_paint(cr);
-    
-            cairo_set_source_rgb(cr, 1, 1, 1);
-            auto it_axes=axes.begin();
-            auto it_colors=colors.begin();
-            while(it_axes!=axes.end())
-            {
-                cairo_set_source_rgb(cr, (*it_colors)[0], (*it_colors)[1], (*it_colors)[2]);
-                auto path = camera.project_NDC(*it_axes);
-                cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-                for(auto point: path)
-                    cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
-                cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-                cairo_stroke(cr);
-                ++it_axes;
-                ++it_colors;
-            }
-
-            std::ostringstream stringStream;
-            stringStream << "test_rotating_frame_axes_b" << std::setfill('0') << std::setw(3) << i << ".png";
-            cairo_surface_write_to_png(surface, stringStream.str().c_str()); // Memory leak, too lazy to fix
-    
-            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" output.mp4
-            // ffmpeg -framerate $FRAMERATE -i "pic%03d.png" -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p output.mp4
-            cairo_destroy(cr);
-            cairo_surface_destroy(surface);
-        }
-    }
-
-};
-
-void follow_no_join(cairo_t *cr, std::list< arma::Col<double> > path)
-{
-    cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-    for(auto point: path) cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
-}
-
-void follow(cairo_t *cr, std::list< arma::Col<double> > path)
-{
-    cairo_move_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-    for(auto point: path) cairo_line_to(cr, point[0]+0.5, point[1]+0.5);
-    cairo_line_to(cr, path.front()[0]+0.5, path.front()[1]+0.5);
-}
-
-int main()
-{
-    cairo_surface_t *surface;
-    cairo_t *cr;
-    
-    surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 512, 512);
-    cr = cairo_create(surface);
-    cairo_surface_set_device_scale(surface, 512, 512);
-    cairo_set_line_width(cr, 0.01);
-    
-    cairo_set_source_rgb(cr, 1, 1, 1);
-    cairo_paint(cr);
-    
-    auto camera = Camera::from_polars(3.5, M_PI/2/2, M_PI/2-M_PI/6);
-    camera.move_projection_plane(1);
-    camera.traslate(arma::Col<double>{0, -0.4, 0.2});
-
-    // Axes behind sphere
-    cairo_set_source_rgb(cr, 0.4, 0, 0.4);
-    cairo_set_line_width(cr, 0.007);
-
-    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{1, 0, 0} }));
-    cairo_stroke(cr);
-    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 1, 0} }));
-    cairo_stroke(cr);
-    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 0, 1} }));
-    cairo_stroke(cr);
-
-    // omega vector
-    double omega_x=0.4, omega_z=2*omega_x,
-           q=1.2;
-    cairo_set_line_width(cr, 0.007);
-    cairo_set_source_rgb(cr, 0, 0.8, 0.4);
-    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{omega_x, 0, omega_z} }));
-    cairo_stroke(cr);
-    cairo_set_line_width(cr, 0.004);
-    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{omega_x, 0, 0} }));
-    cairo_stroke(cr);
-    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{0, 0, omega_z} }));
-    cairo_stroke(cr);
-    cairo_set_source_rgb(cr, 0.3, 1, 0.7);
-    follow(cr, camera.project({ arma::Col<double>{omega_x, 0, omega_z}, arma::Col<double>{q*omega_x, 0, omega_z} }));
-    cairo_stroke(cr);
-    cairo_set_source_rgb(cr, 0, 1, 0.5);
-    follow(cr, camera.project({ arma::Col<double>{0, 0, 0}, arma::Col<double>{q*omega_x, 0, omega_z} }));
-    cairo_stroke(cr);
-
-    // Sphere fill
-    cairo_set_line_width(cr, 0.01);
-    cairo_set_source_rgba(cr, 0, 0, 0, 0.4);
-    follow(cr, Sphere(arma::Col<double>{0, 0, 0}, 1).contour(camera));
-    cairo_fill(cr);
-
-    // Axes in front of sphere
-    cairo_set_source_rgb(cr, 0.4, 0, 0.4);
-    cairo_set_line_width(cr, 0.007);
-
-    follow(cr, camera.project({ arma::Col<double>{1, 0, 0}, arma::Col<double>{1.5, 0, 0} }));
-    cairo_stroke(cr);
-    follow(cr, camera.project({ arma::Col<double>{0, 1, 0}, arma::Col<double>{0, 1.5, 0} }));
-    cairo_stroke(cr);
-    follow(cr, camera.project({ arma::Col<double>{0, 0, 1}, arma::Col<double>{0, 0, 1.5} }));
-    cairo_stroke(cr);
-
-    // Trajectory
-    cairo_set_line_width(cr, 0.004);
-    cairo_set_source_rgb(cr, 0, 0.8, 0.8);
-    {
-        int points=128; 
-        arma::Col<double> omega{ omega_x, 0, omega_z };
-        double dtheta=0.8*2*M_PI/points;
-        omega = omega/arma::norm(omega);
-        std::list< arma::Col<double> > traj;
-        for(int i=0; i<points; i++) traj.push_back(FrameTransform::rotation_matrix(omega, i*dtheta)*arma::Col<double>{0, 0, 1});
-        std::cout << traj.back() << "\n";
-        traj = camera.project(traj);
-        follow_no_join(cr, traj);
-        cairo_stroke(cr);
-    }
-
-    // Delta trajectory
-
-    cairo_set_line_width(cr, 0.004);
-    cairo_set_source_rgb(cr, 0, 0.9, 0.9);
-    {
-        int points=128; 
-        arma::Col<double> omega{ q*omega_x, 0, omega_z };
-        double dtheta=0.8*2*M_PI*arma::norm(omega)/arma::norm(arma::Col<double>{ omega_x, 0, omega_z })/points;
-        omega=omega/arma::norm(omega);
-        std::list< arma::Col<double> > traj;
-        for(int i=0; i<points; i++) traj.push_back(FrameTransform::rotation_matrix(omega, i*dtheta)*arma::Col<double>{0, 0, 1});
-        std::cout << traj.back() << "\n";
-        traj = camera.project(traj);
-        follow_no_join(cr, traj);
-        cairo_stroke(cr);
-    }
-    
-    cairo_surface_write_to_png(surface, "test.png");
-    
-    cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    return 0;
-}
-
-arma::Mat<double> FrameTransform::rotation_matrix(arma::Col<double> versor, double theta)
-{
-    double x{versor[0]}, y{versor[1]}, z{versor[2]};
-    return arma::Mat<double>{ { cos(theta)+x*x*(1-cos(theta)), x*y*(1-cos(theta))-z*sin(theta), x*z*(1-cos(theta))+y*sin(theta) },
-                              { x*y*(1-cos(theta))+z*sin(theta), cos(theta)+y*y*(1-cos(theta)), y*z*(1-cos(theta))-x*sin(theta) },
-                              { x*z*(1-cos(theta))-y*sin(theta), y*z*(1-cos(theta))+x*sin(theta), cos(theta)+z*z*(1-cos(theta)) } };
-}
-
-FrameTransform &FrameTransform::traslate(const arma::Col<double> &displacement)
-{
-    traslation = traslation - displacement;
-    return *this;
-}
-
-FrameTransform &FrameTransform::rotate(const arma::Col<double> &rotation)
-{
-    double theta=arma::norm(rotation);
-    rotscale = rotscale*arma::inv(rotation_matrix(1/theta*rotation, theta));
-    return *this;
-}
-
-FrameTransform operator*(const FrameTransform &left, const FrameTransform &right)
-{
+  FrameTransform operator*(const FrameTransform &left, const FrameTransform &right)
+  {
     FrameTransform ret;
     ret.traslation = right.rotscale*right.traslation+left.rotscale ;
     ret.rotscale = left.rotscale*right.rotscale;
     return ret;
-}
-
-arma::Col<double> operator*(const FrameTransform &left, const arma::Col<double> &right)
-{
+  }
+  
+  arma::Col<double> operator*(const FrameTransform &left, const arma::Col<double> &right)
+  {
     return left.rotscale*(right+left.traslation);
-}
+  }
+  
+  class Camera
+  {
+  private:
+    FrameTransform frame;
+    double focal_distance, half_width, half_height;
+  
+  public:
+    Camera(const FrameTransform &frame=FrameTransform{}, double focal_distance=1, double width=2, double height=2):
+      frame{ FrameTransform{arma::Col<double>{0, 0, -focal_distance}}*frame },
+      focal_distance{ focal_distance },
+      half_width{ width/2 },
+      half_height{ height/2 }
+    {}
+  
+    arma::Col<double> origin() const
+    {
+      return frame.origin();
+    }
+  
+    double get_focal_distance() const
+    {
+      return focal_distance;
+    }
+  
+    void set_focal_distance(double new_focal_distance)
+    {
+      frame=FrameTransform{arma::Col<double>{0, 0, focal_distance-new_focal_distance}};
+      focal_distance=new_focal_distance;
+    }
+  
+    double get_xfov() const
+    {
+      return atan(half_width/focal_distance);
+    }
+  
+    void set_xfov(const double xfov)
+    {
+      set_focal_distance(half_width/tan(xfov));
+    }
+  
+    double get_yfov() const
+    {
+      return atan(half_height/focal_distance);
+    }
+  
+    void set_yfov(const double yfov)
+    {
+      set_focal_distance(half_height/tan(yfov));
+    }
+  
+    double get_width() const
+    {
+      return 2*half_width;
+    }
+  
+    void set_width(const double width)
+    {
+      half_width=width/2;
+    }
+  
+    double get_height() const
+    {
+      return 2*half_height;
+    }
+  
+    void set_height(const double height)
+    {
+      half_height=height/2;
+    }
+  
+    Camera copy()
+    {
+      return *this;
+    }
+  
+    Camera &traslate(const arma::Col<double> &displacement)
+    {
+      frame.traslate(displacement);
+      return *this;
+    }
+  
+    arma::Col<double> project(arma::Col<double> point) const
+    {
+      point = frame*point;
+      point[2] = -point[2]/focal_distance;
+      return { point[0]/point[2], point[1]/point[2], point[2] };
+    }
 
-Camera Camera::from_polars(const double rho, const double phi, const double theta, const double radial)
-{
+    std::list< arma::Col<double> > project(std::list< arma::Col<double> > points) const
+    {
+      std::list< arma::Col<double> > ret;
+      for(auto point: points) ret.push_back(project(point));
+      return ret;
+    }
+
+    arma::Col<double> project_NDC(arma::Col<double> point) const
+    {
+      point = frame*point;
+      point[2] = -point[2]/focal_distance;
+      return { point[0]/point[2]/half_width, point[1]/point[2]/half_width, point[2] };
+    }
+
+    std::list< arma::Col<double> > project_NDC(std::list< arma::Col<double> > points) const
+    {
+      std::list< arma::Col<double> > ret;
+      for(auto point: points) ret.push_back(project_NDC(point));
+      return ret;
+    }
+
+    static Camera from_polars(const double rho=1, const double phi=0, const double theta=M_PI/2, const double radial=0);
+  };
+
+  Camera Camera::from_polars(const double rho, const double phi, const double theta, const double radial)
+  {
     arma::Col<double> x_{           -sin(phi),            cos(phi),          0 },
                       y_{ cos(phi)*cos(theta), sin(phi)*cos(theta), -sin(theta) },
                        z{ cos(phi)*sin(theta), sin(phi)*sin(theta),  cos(theta) };
@@ -531,53 +541,114 @@ Camera Camera::from_polars(const double rho, const double phi, const double thet
                       y = sin(radial)*x_+cos(radial)*y_;
     FrameTransform frame(rho*z, {x, y, z});
     return Camera(frame);
-}
+  }
 
-arma::Col<double> Camera::project(arma::Col<double> point) const
-{
-    point = frame*point;
-    point[2] = -point[2]/focal_distance;
-    return { point[0]/point[2], point[1]/point[2], point[2] };
-}
+  class Ellipse;
 
-std::list< arma::Col<double> > Camera::project(std::list< arma::Col<double> > points) const
-{
-    std::list< arma::Col<double> > ret;
-    for(auto point: points) ret.push_back(project(point));
-    return ret;
-}
+  class Circle
+  {
+  private:
+    arma::Col<double> center, radius;
 
-arma::Col<double> Camera::project_NDC(arma::Col<double> point) const
-{
-    point = frame*point;
-    point[2] = -point[2]/focal_distance;
-    return { half_width*point[0]/point[2], half_height*point[1]/point[2], point[2] }; //WARNING: no es exactamente NDC, ya que z debería ir de 0 a 1 tmb.
-}
+  public:
+    Circle(const arma::Col<double> &center, const arma::Col<double> &radius):
+      center{ center },
+      radius{ radius }
+    {}
 
-std::list< arma::Col<double> > Camera::project_NDC(std::list< arma::Col<double> > points) const
-{
-    std::list< arma::Col<double> > ret;
-    for(auto point: points) ret.push_back(project_NDC(point));
-    return ret;
-}
+    Circle(const arma::Col<double> &center, const arma::Col<double> &normal, const double radius):
+      center{ center },
+      radius{ radius*normal/arma::norm(normal) }
+    {}
+  
+    std::list< arma::Col<double> > as_path(const int points);
+    
+    friend Ellipse;
+  };
 
-std::list< arma::Col<double> > Circle::as_path(const int points)
-{
+  class Ellipse
+  {
+  private:
+    arma::Col<double> center, axis1, axis2;
+
+    Ellipse() {}
+  public:
+    Ellipse(const Circle &circle): center{ circle.center }
+    {
+      double radius = arma::norm(circle.radius);
+      arma::Col<double> versor = 1/radius*circle.radius;
+
+      if(fabs(versor[0])>1-0.1) axis1 = arma::Col<double>{0, 1, 0}; // Pick the perpendicularest
+      else                      axis1 = arma::Col<double>{1, 0, 0}; //
+
+      axis1 = arma::cross(versor, axis1);
+      axis1 = radius/arma::norm(axis1)*axis1;
+      axis2 = arma::cross(versor, axis1);
+    }
+
+    std::list< arma::Col<double> > as_path(const int points)
+    {
+      double dtheta=2*M_PI/points;
+      std::list< arma::Col<double> > ret;
+      for(int i=0; i<points; i++) ret.push_back(arma::Col<double>{ center+axis1*cos(i*dtheta)+axis2*sin(i*dtheta) });
+      return ret;
+    }
+  };
+
+  // ¿Hay forma de meter esto en Circle directamente?
+  std::list< arma::Col<double> > Circle::as_path(const int points=128)
+  {
     return Ellipse(*this).as_path(points); //Ah re
-}
+  }
 
-std::list< arma::Col<double> > Ellipse::as_path(const int points)
-{
-    double dtheta=2*M_PI/points;
-    std::list< arma::Col<double> > ret;
-    for(int i=0; i<points; i++) ret.push_back(arma::Col<double>{ center+axis1*cos(i*dtheta)+axis2*sin(i*dtheta) });
-    return ret;
-}
+  class Sphere
+  {
+  private:
+    arma::Col<double> center;
+    double radius;
 
-std::list< arma::Col<double> > Sphere::contour(const Camera &camera)
+    Sphere() {}
+  public:
+    Sphere(const arma::Col<double> &center, const double radius):
+      center{ center },
+      radius{ radius }
+    {}
+
+    std::list< arma::Col<double> > contour(const Camera &camera)
+    {
+      arma::Col<double> rel=center-camera.origin();
+      double norm=arma::norm(rel);
+      double q=radius*radius/arma::norm(rel)/arma::norm(rel);
+      return camera.project(Circle((1-q)*rel+camera.origin(), rel, sqrt(radius*radius-q*q*norm*norm)).as_path());
+    }
+  };
+};
+
+int main()
 {
-    arma::Col<double> rel=center-camera.origin();
-    double norm=arma::norm(rel);
-    double q=radius*radius/arma::norm(rel)/arma::norm(rel);
-    return camera.project(Circle((1-q)*rel+camera.origin(), rel, sqrt(radius*radius-q*q*norm*norm)).as_path());
+  minim::svg::Surface surface{512, 512};
+
+  minim::svg::Path square({128, 128});
+  square.l({256, 0});
+  square.l({0, 256});
+  square.l({-256, 0});
+  square.Z();
+  square.set_fill({1, 1, 1});
+  square.set_stroke({0, 0, 0});
+  square.set_width(2);
+  surface << square;
+
+  minim::svg::Path very_precise_circle = minim::svg::quad_approx([](double t)->arma::Col<double>{ return {256+128*cos(2*M_PI*t), 256+128*sin(2*M_PI*t)}; }, 128);
+  very_precise_circle.set_stroke_opacity(0);
+  very_precise_circle.set_fill({ 0, 0.8, 0.8 });
+  surface << very_precise_circle;
+
+  minim::svg::Path not_so_precise_circle = minim::svg::quad_approx([](double t)->arma::Col<double>{ return {256+128*cos(2*M_PI*t), 256+128*sin(2*M_PI*t)}; }, 8);
+  not_so_precise_circle.set_width(2);
+  not_so_precise_circle.set_stroke({ 0.8, 0.2, 0.2 });
+  surface << not_so_precise_circle;
+
+  std::ofstream outf("test.svg");
+  outf << surface;
+  return 0;
 }
