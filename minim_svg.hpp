@@ -19,7 +19,7 @@ namespace minim
 
     class Formatter
     {
-      virtual void insert(std::map<std::string, std::string>) const;
+      virtual void insert(std::map<std::string, std::string>) const = 0;
     public:
       friend class Shape;
       friend class Surface;
@@ -27,12 +27,13 @@ namespace minim
 
     class Shape
     {
-      virtual std::string get_content();
+      virtual std::string get_content() const = 0;
+      virtual Shape* clone() const = 0;
       std::map<std::string, std::string> format;
 
     protected:
 
-      std::string default_format()
+      std::string default_format() const
       {
         std::string ret;
         for(std::pair<std::string, std::string> formatter: format)
@@ -135,9 +136,7 @@ namespace minim
 
       Surface &operator<<(const Shape& shape)
       {
-        // TAPIANINI: ¿Cómo evito object slicing?
-        //            ¿Se puede declarar virtual al operator new?
-        shapes.push_back(std::unique_ptr<Shape>(new Shape{shape}));
+        shapes.push_back(std::unique_ptr<Shape>(shape.clone()));
         return *this;
       }
 
@@ -190,10 +189,16 @@ namespace minim
 
     class Path: public Shape
     {
+
       std::string d;
-      std::string get_content()
+      std::string get_content() const
       {
         return (std::string)("<path d=\"")+d+"\""+default_format()+"/>";
+      }
+
+      Shape* clone() const
+      {
+        return new Path{*this};
       }
 
       void commandu(const std::string com, std::vector<double> params)
@@ -293,7 +298,6 @@ namespace minim
       {
         command("t", {target});
       }
-
       // Arc is missing but... whatever.
     };
   }
