@@ -19,7 +19,7 @@ namespace minim
 
     class Formatter
     {
-      virtual void insert(std::map<std::string, std::string>) const = 0;
+      virtual void insert(std::map<std::string, std::string>&) const = 0;
     public:
       friend class Shape;
       friend class Surface;
@@ -179,11 +179,6 @@ namespace minim
       SetFillRGB(const std::vector<int>& rgb)
       {
         check_and_assign(rgb);
-      }
-
-      SetFillRGB(const std::vector<double>& rgb)
-      {
-        check_and_assign({(int)(rgb[0]*255.999), (int)(rgb[1]*255.999), (int)(rgb[2]*255.999)});
       }
     };
 
