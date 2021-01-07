@@ -17,6 +17,16 @@ namespace minim
     class bad_rgb{};
     class bad_size{};
 
+    struct RGB
+    {
+      unsigned char r, g, b;
+    };
+
+    struct RGBA
+    {
+      unsigned char r, g, b, a;
+    };
+
     class Formatter
     {
       virtual void insert(std::map<std::string, std::string>&) const = 0;
@@ -153,16 +163,7 @@ namespace minim
 
     class SetFillRGB: public Formatter
     {
-      int r, g, b;
-
-      void check_and_assign(const std::vector<int>& rgb)
-      {
-        if(rgb.size()!=3) throw bad_rgb{};
-        for(int i=0; i<3; i++) if(rgb[i]<0 || rgb[i]>=256) throw bad_rgb{};
-        r=rgb[0];
-        g=rgb[1];
-        b=rgb[2];
-      }
+      RGB rgb;
 
       std::string get_id() const
       {
@@ -172,14 +173,13 @@ namespace minim
       // QUESTION: Should it modify opacity?
       void insert(std::map<std::string, std::string>& format) const
       {
-        format["fill"]=(std::string)"rgb("+std::to_string(r)+","+std::to_string(g)+","+std::to_string(b);
+        format["fill"]=(std::string)"rgb("+std::to_string(rgb.r)+","+std::to_string(rgb.g)+","+std::to_string(rgb.b)+")";
       }
 
     public:
-      SetFillRGB(const std::vector<int>& rgb)
-      {
-        check_and_assign(rgb);
-      }
+      SetFillRGB(const RGB &rgb):
+        rgb{ rgb }
+      {}
     };
 
     class Path: public Shape
