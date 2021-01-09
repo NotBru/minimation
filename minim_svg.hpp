@@ -16,7 +16,13 @@ namespace minim
     // QUESTION: Inherit from std::runtime_error?
     class negative_measure{};
     class bad_rgb{};
+    class bad_linecap{};
+    class bad_linejoin{};
+    class bad_opacity{};
     class bad_size{};
+
+    enum class Linecap { butt, square, round };
+    enum class Linejoin { miter, round, bevel };
 
     struct RGB
     {
@@ -145,13 +151,15 @@ namespace minim
       {
         std::ofstream outf;
         outf.open(filename);
-        outf << "<svg version=\"1.1\"\n"
-                "     baseProfile=\"full\"\n"
+        outf << "<svg version=\"1.1\"\n";
+        if(viewBox.size())
+          outf << "     viewBox=\"" << viewBox[0] << " " << viewBox[1] << " " << viewBox[2] << " " << viewBox[3] << "\"\n";
+        outf << "     baseProfile=\"full\"\n"
                 "     width=\"" << width << "\" height=\"" << height << "\"\n"
                 "     xmlns=\"http://www.w3.org/2000/svg\">\n\n";
 
-        for(auto i=shapes.begin(); i!=shapes.end(); ++i)
-          outf << "  " << (*i)->get_content() << "\n\n";
+        for(std::unique_ptr<Shape> &shape: shapes)
+          outf << "  " << shape->get_content() << "\n\n";
 
         outf << "</svg>";
       }
@@ -184,7 +192,6 @@ namespace minim
         return "fill";
       }
 
-      // QUESTION: Should it modify opacity?
       void insert(std::map<std::string, std::string>& format) const
       {
         format["fill"]=(std::string)"rgb("+std::to_string(rgb.r)+","+std::to_string(rgb.g)+","+std::to_string(rgb.b)+")";
@@ -194,6 +201,243 @@ namespace minim
       SetFillRGB(const RGB &rgb):
         rgb{ rgb }
       {}
+    };
+
+    class SetFillOpacity: public Formatter
+    {
+      double opacity;
+
+      std::string get_id() const
+      {
+        return "fill-opacity";
+      }
+
+      void insert(std::map<std::string, std::string>& format) const
+      {
+        format["fill-opacity"]=std::to_string(opacity);
+      }
+
+    public:
+      SetFillOpacity(const double opacity):
+        opacity{ opacity }
+      {
+        // QUESTION: Perform this check?
+        if(opacity<0 || opacity>1) throw bad_opacity{};
+      }
+    };
+
+    class SetFillRGBA: public Formatter
+    {
+      RGBA rgba;
+
+      std::string get_id() const
+      {
+        return "fill";
+      }
+
+      void insert(std::map<std::string, std::string>& format) const
+      {
+        format["fill"]=(std::string)"rgb("+std::to_string(rgba.r)+","+std::to_string(rgba.g)+","+std::to_string(rgba.b)+")";
+        format["fill-opacity"]=std::to_string(rgba.a/255.);
+      }
+
+    public:
+      SetFillRGBA(const RGBA &rgba):
+        rgba{ rgba }
+      {}
+    };
+
+    class SetStrokeRGB: public Formatter
+    {
+      RGB rgb;
+
+      std::string get_id() const
+      {
+        return "stroke";
+      }
+
+      void insert(std::map<std::string, std::string>& format) const
+      {
+        format["stroke"]=(std::string)"rgb("+std::to_string(rgb.r)+","+std::to_string(rgb.g)+","+std::to_string(rgb.b)+")";
+      }
+
+    public:
+      SetStrokeRGB(const RGB &rgb):
+        rgb{ rgb }
+      {}
+    };
+
+    class SetStrokeOpacity: public Formatter
+    {
+      double opacity;
+
+      std::string get_id() const
+      {
+        return "stroke-opacity";
+      }
+
+      void insert(std::map<std::string, std::string>& format) const
+      {
+        format["stroke-opacity"]=std::to_string(opacity);
+      }
+
+    public:
+      SetStrokeOpacity(const double opacity):
+        opacity{ opacity }
+      {
+        // QUESTION: Perform this check?
+        if(opacity<0 || opacity>1) throw bad_opacity{};
+      }
+    };
+
+    class SetStrokeRGBA: public Formatter
+    {
+      RGBA rgba;
+
+      std::string get_id() const
+      {
+        return "stroke";
+      }
+
+      void insert(std::map<std::string, std::string>& format) const
+      {
+        format["stroke"]=(std::string)"rgb("+std::to_string(rgba.r)+","+std::to_string(rgba.g)+","+std::to_string(rgba.b)+")";
+        format["stroke-opacity"]=std::to_string(rgba.a/255.);
+      }
+
+    public:
+      SetStrokeRGBA(const RGBA &rgba):
+        rgba{ rgba }
+      {}
+    };
+
+    class SetStrokeWidth: public Formatter
+    {
+      double width;
+
+      std::string get_id() const
+      {
+        return "stroke-width";
+      }
+
+      void insert(std::map<std::string, std::string>& format) const
+      {
+        format["stroke-width"]=std::to_string(width);
+      }
+
+    public:
+      SetStrokeWidth(const double width):
+        width{ width }
+      {}
+    };
+
+    class SetStrokeLinecap: public Formatter
+    {
+      Linecap linecap;
+
+      std::string get_id() const
+      {
+        return "stroke-linecap";
+      }
+
+      void insert(std::map<std::string, std::string>& format) const
+      {
+        switch(linecap)
+        {
+          case Linecap::butt:
+            format["stroke-linecap"]="butt";
+            break;
+          case Linecap::square:
+            format["stroke-linecap"]="square";
+            break;
+          case Linecap::round:
+            format["stroke-linecap"]="round";
+            break;
+        }
+      }
+
+    public:
+      SetStrokeLinecap(const std::string &linecap)
+      {
+        if     (linecap=="butt")
+          this->linecap=Linecap::butt;
+        else if(linecap=="square")
+          this->linecap=Linecap::square;
+        else if(linecap=="round")
+          this->linecap=Linecap::round;
+        else throw bad_linecap{};
+      }
+
+      SetStrokeLinecap(const Linecap linecap):
+        linecap{ linecap }
+      {}
+    };
+
+    class SetStrokeLinejoin: public Formatter
+    {
+      Linejoin linejoin;
+
+      std::string get_id() const
+      {
+        return "stroke-linejoin";
+      }
+
+      void insert(std::map<std::string, std::string>& format) const
+      {
+        switch(linejoin)
+        {
+          case Linejoin::miter:
+            format["stroke-linejoin"]="miter";
+            break;
+          case Linejoin::bevel:
+            format["stroke-linejoin"]="bevel";
+            break;
+          case Linejoin::round:
+            format["stroke-linejoin"]="round";
+            break;
+        }
+      }
+
+    public:
+      SetStrokeLinejoin(const std::string &linejoin)
+      {
+        if     (linejoin=="miter")
+          this->linejoin=Linejoin::miter;
+        else if(linejoin=="bevel")
+          this->linejoin=Linejoin::bevel;
+        else if(linejoin=="round")
+          this->linejoin=Linejoin::round;
+        else throw bad_linejoin{};
+      }
+
+      SetStrokeLinejoin(const Linejoin linejoin):
+        linejoin{ linejoin }
+      {}
+    };
+
+    class SetStrokeDasharray: public Formatter
+    {
+      std::list<double> dasharray;
+
+      std::string get_id() const
+      {
+        return "stroke-dasharray";
+      }
+
+      void insert(std::map<std::string, std::string>& format) const
+      {
+        std::string temp;
+        for(double dash: dasharray)
+          temp+=std::to_string(dash)+",";
+        format["stroke-dasharray"]=temp.substr(0, temp.size()-1);
+      }
+
+    public:
+      SetStrokeDasharray(std::list<double> dasharray):
+        dasharray{ dasharray }
+      {
+        for(double dash: dasharray) if(dash<0) throw negative_measure{}; 
+      }
     };
 
     class Path: public Shape
