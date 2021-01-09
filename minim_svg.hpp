@@ -553,6 +553,59 @@ namespace minim
       }
       // Arc is missing but... whatever.
     };
+
+    class Rect: public Shape
+    {
+      double x, y, width, height, rx, ry;
+      bool br=0;
+
+      std::string get_content() const
+      {
+        return (std::string)("<rect x=\"")+std::to_string(x)+"\" y=\""+std::to_string(y)
+                            +"\" width=\""+std::to_string(width)+"\" height=\""+std::to_string(height)+"\""
+                            +(br&1?(std::string)" rx=\""+std::to_string(rx)+"\"":"")
+                            +(br&2?(std::string)" ry=\""+std::to_string(ry)+"\"":"")
+                            +default_format()+"/>";
+      }
+
+      Rect* clone() const
+      {
+        return new Rect{*this};
+      }
+
+    public:
+      Rect(const std::pair<double, double> origin, const std::pair<double, double> size):
+        x{ origin.first }, y{ origin.second }, width{ size.first }, height{ size.second }
+      {
+        if(size.first<0 || size.second<0) throw negative_measure{};
+      }
+
+      void set_rx(const double rx)
+      {
+        br|=1;
+        this->rx=rx;
+        if(rx<0) throw negative_measure{};
+      }
+
+      void unset_rx()
+      {
+        br&=2;
+      }
+
+      void set_ry(const double ry)
+      {
+        br|=2;
+        this->ry=ry;
+        if(ry<0) throw negative_measure{};
+      }
+
+      void unset_ry()
+      {
+        br&=1;
+      }
+
+      // QUESTION: TODO? transformations or whatever?
+    };
   }
 }
 
