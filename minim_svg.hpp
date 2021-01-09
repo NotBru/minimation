@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <list>
 #include <memory>
@@ -140,7 +141,20 @@ namespace minim
         viewBox=std::vector<double>{origin.first, origin.second, end.first-origin.first, end.second-origin.second};
       }
       
-      // void write(std::string filename); // TODO
+      void write(std::string filename)
+      {
+        std::ofstream outf;
+        outf.open(filename);
+        outf << "<svg version=\"1.1\"\n"
+                "     baseProfile=\"full\"\n"
+                "     width=\"" << width << "\" height=\"" << height << "\"\n"
+                "     xmlns=\"http://www.w3.org/2000/svg\">\n\n";
+
+        for(auto i=shapes.begin(); i!=shapes.end(); ++i)
+          outf << "  " << (*i)->get_content() << "\n\n";
+
+        outf << "</svg>";
+      }
 
       // friend operator<<(std::ostream&, const Surface&); // TODO?
 

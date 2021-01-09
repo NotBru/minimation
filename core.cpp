@@ -37,5 +37,7 @@ int main()
    * surface.write("minim_svg_output.svg");
    */
 
+  surface.write("test.svg");
+
   return 0;
 }
